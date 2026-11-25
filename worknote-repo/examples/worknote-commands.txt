@@ -1,0 +1,30 @@
+worknote/add: note tag/sub: text -- add a one-line note; text after -- or # becomes the description
+worknote/add: note tag/sub: -- paste mode for multi-line blocks; finish with 2 empty lines or "."
+worknote/add: note -p tag/sub: title -- paste mode with a title
+worknote/add: note -- prompt mode; type anything safely
+worknote/add: note -n NAME tag: text -- add to notebook NAME_WorkNote.md instead of the default
+worknote/add: note table tag: Table name -- build a table; columns first, then rows; empty line ends
+worknote/add: note pic C:\path\pic.png tag: caption -- copy a picture into worknotes\assets and link it
+worknote/add: note pic --clip tag: caption -- add the picture on the clipboard (Win+Shift+S first)
+worknote/add: note --import [FILE] -- add many "tag: text -- desc" lines at once, from the clipboard or a file
+worknote/view: note -l -- show the whole default notebook
+worknote/view: note -t TAG -- show one tag and its sub-tags; add -g for all notebooks
+worknote/view: note -T -- list tags with counts; add -g for all notebooks
+worknote/view: note -N -- list notebooks
+worknote/search: note -s WORDS -- search the default notebook (all words must match)
+worknote/search: note -S WORDS -- search all notebooks
+worknote/edit: note --mod WORDS -- find a note, pick it, type the new text or a new tag:
+worknote/edit: note --rm WORDS -- find notes, pick numbers, delete them; add -g for all notebooks
+worknote/edit: note --undo -- remove the last note added on this computer
+worknote/edit: note -e -- open the notebook in Notepad; re-sorted on close
+worknote/edit: note --organize -- re-sort all notebooks by tag after hand edits
+worknote/edit: note --merge FROM [INTO] -- move all notes of notebook FROM into INTO and delete FROM
+worknote/sync: note --sync -- pull and push with the home server
+worknote/sync: note --autosync on|off -- sync after every change
+worknote/sync: git -C ~/worknotes.git log --oneline -5 main -- on the server: check what has arrived
+worknote/setup: note --default general -- send every note to general unless -n is used (off = one notebook per folder)
+worknote/setup: note --where -- show the notes folder and which notebook is used
+worknote/setup: note --init USER@HOST:worknotes.git -- connect the notes folder to a git remote (once per machine)
+worknote/setup: Copy-Item note.py $HOME\bin\worknote\ -Force; Unblock-File $HOME\bin\worknote\note.py -- update the tool on Windows
+worknote/setup: ~/.local/share/worknote/note.py -- where the tool lives on the server (replace this file to update)
+worknote/setup: note -h -- full help
