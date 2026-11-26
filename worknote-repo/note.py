@@ -33,6 +33,8 @@ Maintain
   note --sync             pull + push with the remote
   note --autosync on|off  sync automatically after every note
   note --where            show where the notes are stored
+  note --link FILE.md     also search this Markdown file with -S (it is never changed)
+  note --unlink NAME      stop searching a linked file      note --links   list them
 
 A text after " -- " or " # " is the description:  `TAR IN101` - monitor binary input
 """
@@ -47,9 +49,10 @@ import shutil
 import socket
 import subprocess
 import sys
+import unicodedata
 from pathlib import Path
 
-VERSION = "1.0.0"
+VERSION = "1.1.0"
 SUFFIX = "_WorkNote.md"
 INBOX = "inbox"
 CONFIG_PATH = Path.home() / ".worknote.json"
@@ -413,6 +416,82 @@ def paint(line, terms=None):
     return "  " + indent + bullet + body
 
 
+ANSI = re.compile(r"\x1b\[[0-9;]*m")
+
+
+def char_width(ch):
+    if unicodedata.combining(ch):
+        return 0
+    return 2 if unicodedata.east_asian_width(ch) in ("W", "F") else 1
+
+
+def text_width(s):
+    return sum(char_width(c) for c in ANSI.sub("", s))
+
+
+def wrap_display(s):
+    """Wrap a painted line to the terminal width. Continuation lines line up under the
+    description (the text after ' — '), or under the text after the bullet."""
+    if not sys.stdout.isatty():
+        return s
+    width = shutil.get_terminal_size((100, 24)).columns - 1
+    plain = ANSI.sub("", s)
+    if text_width(plain) <= width or plain.lstrip().startswith("|"):
+        return s
+    bullet = plain.find("• ")
+    hang = text_width(plain[: bullet + 2]) if bullet != -1 else len(plain) - len(plain.lstrip())
+    dash = plain.find(" — ")
+    if dash != -1:
+        desc_col = text_width(plain[: dash + 3])
+        if desc_col <= width * 0.6:
+            hang = desc_col
+    if hang > width // 2:
+        hang = 4
+
+    # split into tokens: ANSI codes (zero width), runs of spaces, and words
+    tokens = re.findall(r"\x1b\[[0-9;]*m|[ ]+|[^ \x1b]+", s)
+    lines, cur, cur_w = [], "", 0
+    pending_space = ""
+    for tok in tokens:
+        if tok.startswith("\x1b"):
+            cur += tok
+            continue
+        if tok.startswith(" "):
+            if not lines and not ANSI.sub("", cur):  # leading indent of the first line
+                cur += tok
+                cur_w += len(tok)
+            else:
+                pending_space = tok if cur_w > hang or not lines else ""
+            continue
+        w = text_width(tok)
+        fits_on_fresh_line = w <= width - hang
+        if cur_w and cur_w + len(pending_space) + w > width and fits_on_fresh_line:
+            lines.append(cur)
+            cur, cur_w = " " * hang, hang
+            pending_space = ""
+        cur += pending_space
+        cur_w += len(pending_space)
+        pending_space = ""
+        while cur_w + w > width and w > 1:  # a single word longer than the line
+            room = width - cur_w
+            take, tw = "", 0
+            for ch in tok:
+                if tw + char_width(ch) > room:
+                    break
+                take += ch
+                tw += char_width(ch)
+            if not take:
+                break
+            lines.append(cur + take)
+            tok = tok[len(take):]
+            w = text_width(tok)
+            cur, cur_w = " " * hang, hang
+        cur += tok
+        cur_w += w
+    lines.append(cur)
+    return "\n".join(lines)
+
+
 def print_entry(entry, terms=None):
     fence = None
     for line in entry:
@@ -431,13 +510,13 @@ def print_entry(entry, terms=None):
             fence = fm.group(1)
             title = line.strip()[1:].strip() if line.lstrip().startswith(("-", "*")) else ""
             if title and not title.startswith(fence):
-                print(paint(line, terms))
+                print(wrap_display(paint(line, terms)))
             elif line.lstrip().startswith(("-", "*")):
                 print("  " + col("2", "• ") + col("2", "(block)"))
             continue
         if not line.strip():
             continue
-        print(paint(line, terms))
+        print(wrap_display(paint(line, terms)))
 
 
 def print_tag_heading(tag, notebook=None):
@@ -999,7 +1078,94 @@ def cmd_search(terms, nbname, everywhere):
                         shown_heading = True
                     print_entry(e, terms)
                     hits += 1
+    if everywhere:
+        hits += search_linked(terms)
     print(col("2", f"{hits} match(es)") if hits else col("33", "No matches."))
+
+
+# ------------------------------------------------------------ linked files --
+
+def linked_files():
+    return [Path(x) for x in load_config().get("links", [])]
+
+
+def search_linked(terms):
+    """Search other Markdown files line by line; a line matches when all words appear
+    in it or in the headings above it."""
+    hits = 0
+    for path in linked_files():
+        if not path.is_file():
+            warn(f"Linked file not found: {path}  (note --unlink {path.stem})")
+            continue
+        try:
+            text = path.read_text(encoding="utf-8-sig", errors="replace")
+        except OSError as e:
+            warn(f"Cannot read {path}: {e}")
+            continue
+        heads, fence, shown = [], None, None
+        for line in text.replace("\r\n", "\n").split("\n"):
+            if fence:
+                if _closes_fence(line, fence):
+                    fence = None
+                    continue
+            else:
+                fm = re.match(r"^\s*(`{3,}|~{3,})", line)
+                if fm:
+                    fence = fm.group(1)
+                    continue
+                hm = re.match(r"^(#{1,6})\s+(.*?)\s*#*\s*$", line)
+                if hm:
+                    level = len(hm.group(1))
+                    heads = [h for h in heads if h[0] < level] + [(level, hm.group(2))]
+                    continue
+            if not line.strip() or re.match(r"^\s*\|[\s|:-]+\|\s*$", line):
+                continue
+            path_txt = " > ".join(h for _, h in heads)
+            hay = (path_txt + "\n" + line).lower()
+            if all(t in hay for t in terms):
+                key = (str(path), path_txt)
+                if shown != key:
+                    print(col("2", f"{path.stem} › ") + col("1;36", path_txt or "(top)"))
+                    shown = key
+                print(wrap_display(paint(line.rstrip(), terms)))
+                hits += 1
+    return hits
+
+
+def cmd_link(arg):
+    if not arg:
+        die("Usage: note --link PATH\\TO\\FILE.md")
+    path = Path(strip_quotes(arg)).expanduser().resolve()
+    if not path.is_file():
+        die(f"File not found: {path}")
+    cfg = load_config()
+    links = cfg.get("links", [])
+    if str(path) in links:
+        warn(f"Already linked: {path}")
+        return
+    cfg["links"] = links + [str(path)]
+    save_config(cfg)
+    ok(f"Linked {path}. It is now included in  note -S  (read-only).")
+
+
+def cmd_unlink(arg):
+    cfg = load_config()
+    links = cfg.get("links", [])
+    keep = [x for x in links if not (Path(x).stem.lower() == strip_quotes(arg).lower()
+                                     or x.lower() == str(Path(strip_quotes(arg)).expanduser().resolve()).lower())]
+    if len(keep) == len(links):
+        die(f"No linked file matches '{arg}'. See  note --links")
+    cfg["links"] = keep
+    save_config(cfg)
+    ok(f"Unlinked {len(links) - len(keep)} file(s). The file itself was not touched.")
+
+
+def cmd_links():
+    links = linked_files()
+    if not links:
+        print("  (no linked files)  add one with  note --link PATH")
+    for p in links:
+        print("  " + col("1", p.stem) + col("2", f"  {p}") + ("" if p.is_file() else col("33", "  (missing)")))
 
 
 def cmd_list(nbname):
@@ -1173,6 +1339,12 @@ def main(argv):
         cmd_init(rest_clean[0])
     elif a == "--sync":
         cmd_sync()
+    elif a == "--link":
+        cmd_link(" ".join(rest))
+    elif a == "--unlink":
+        cmd_unlink(" ".join(rest))
+    elif a == "--links":
+        cmd_links()
     elif a == "--import":
         cmd_import(rest, nbname)
     elif a == "--undo":
