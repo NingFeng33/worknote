@@ -1,6 +1,9 @@
 #!/usr/bin/env python3
 """note - tag-organized work notes in Markdown, synced with git.
 
+Format:  note tag/sub: command or text -- description
+         (colon right after the tag, no spaces in tags, spaces around --)
+
 Add notes
   note sel/access: ACC -- access level 0 to 1     one-line note under a tag
   note sel/settings:                              paste mode (multi-line block)
@@ -8,35 +11,40 @@ Add notes
   note just some text                             untagged -> goes to "inbox"
   note                                            prompt mode: type anything safely
   note table sel/info: Server list                build a table row by row
-  note pic C:\\path\\diagram.png sel: Wiring       copy a picture in and link it
+  note pic C:\\path\\diagram.png sel: Wiring        copy a picture in and link it
   note pic --clip sel: Wiring                     picture from the clipboard
+  note --import [FILE]    add many "tag: text -- desc" lines at once (default: clipboard)
 
 Read / search
-  note -l                 show this folder's notebook
-  note -t sel             show one tag (and its sub-tags)       add -g for all notebooks
-  note -T                 list tags with counts                 add -g for all notebooks
-  note -s word [word..]   search this folder's notebook
-  note -S word [word..]   search ALL notebooks  (same as -g / -a)
+  note -l                 show the whole notebook
+  note -T                 show the tag tree with entry counts   add -g for all notebooks
+  note -t sel             show one tag and its sub-tags         add -g for all notebooks
+  note -s word [word..]   search the notebook
+  note -S word [word..]   search ALL notebooks and linked files
   note -N                 list notebooks
 
-Maintain
-  note -e                 open this notebook in your editor
-  note --organize         re-sort every notebook by tag
-  note -n NAME ...        use notebook NAME (file NAME_WorkNote.md) for this command
+Other notebooks  (put -n NAME first; works with every command)
+  note -n NAME tag: text  add to NAME_WorkNote.md (created on first use)
+  note -n NAME -T         tag tree of NAME
+  note -n NAME -l         show NAME            note -n NAME -e   edit NAME
   note --default NAME     send every note to NAME unless -n is given  (off = per folder)
-  note --import [FILE]    add many "tag: text -- desc" lines at once (default: from clipboard)
-  note --undo             remove the last note you added (repeat to go further back)
-  note --rm WORDS [-g]    find notes, pick by number, delete them
+
+Change notes
   note --mod WORDS [-g]   find a note, pick it, type the new text (or a new tag:)
+  note --rm WORDS [-g]    find notes, pick by number, delete them
+  note --undo             remove the last note you added (repeat to go further back)
+  note -e                 open the notebook in your editor
+  note --organize         re-sort every notebook by tag
   note --merge FROM [INTO]  move all entries of notebook FROM into INTO, delete FROM
-  note --init USER@HOST:worknotes.git    connect the notes folder to a git remote
+
+Sync and setup
   note --sync             pull + push with the remote
   note --autosync on|off  sync automatically after every note
-  note --where            show where the notes are stored
+  note --init USER@HOST:worknotes.git    connect the notes folder to a git remote
   note --link FILE.md     also search this Markdown file with -S (it is never changed)
   note --unlink NAME      stop searching a linked file      note --links   list them
-
-A text after " -- " or " # " is the description:  `TAR IN101` - monitor binary input
+  note --where            show where the notes are stored
+  note --version          show the version
 """
 import base64
 import csv
@@ -52,7 +60,7 @@ import sys
 import unicodedata
 from pathlib import Path
 
-VERSION = "1.1.0"
+VERSION = "1.1.1"
 SUFFIX = "_WorkNote.md"
 INBOX = "inbox"
 CONFIG_PATH = Path.home() / ".worknote.json"
